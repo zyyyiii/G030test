@@ -30,6 +30,15 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum
+{
+  KEY_NONE = 0,
+  KEY_UP,
+  KEY_DOWN,
+  KEY_LEFT,
+  KEY_RIGHT,
+  KEY_CENTER
+} Key_t;
 
 /* USER CODE END PTD */
 
@@ -54,9 +63,13 @@
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
+static uint32_t Read_ADC_Channel(uint32_t channel);
 static uint32_t Read_Light_ADC(void);
+static uint32_t Read_Key_ADC(void);
 static uint8_t Get_Light_Level(uint32_t adc_value);
 static void Set_Led_Level(uint8_t level);
+static Key_t Get_Key_By_UART(void);
+static const char *Key_To_String(Key_t key);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -106,17 +119,24 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-      uint32_t adc_value = Read_Light_ADC();
-      uint8_t led_level = Get_Light_Level(adc_value);
-      char msg[80];
+    uint32_t light_adc = Read_Light_ADC();
+    uint32_t key_adc = Read_Key_ADC();
+    uint8_t led_level = Get_Light_Level(light_adc);
+    Key_t uart_key = Get_Key_By_UART();
+    char msg[120];
 
-      Set_Led_Level(led_level);
+    Set_Led_Level(led_level);
 
-      sprintf(msg, "adc=%lu, level=%d\r\n", adc_value, led_level);
-      HAL_UART_Transmit(&huart1, (uint8_t *)msg, strlen(msg), 100);
+    sprintf(msg,
+            "light=%lu, key_adc=%lu, uart_key=%s, level=%d\r\n",
+            light_adc,
+            key_adc,
+            Key_To_String(uart_key),
+            led_level);
+    HAL_UART_Transmit(&huart1, (uint8_t *)msg, strlen(msg), 100);
 
-      HAL_Delay(500);
-  /* USER CODE END 3 */
+    HAL_Delay(300);
+    /* USER CODE END 3 */
   }
 }
 
@@ -161,9 +181,19 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-static uint32_t Read_Light_ADC(void)
+static uint32_t Read_ADC_Channel(uint32_t channel)
 {
+  ADC_ChannelConfTypeDef sConfig = {0};
   uint32_t adc_value = 0;
+
+  sConfig.Channel = channel;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
+
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
   HAL_ADC_Start(&hadc1);
 
@@ -175,6 +205,16 @@ static uint32_t Read_Light_ADC(void)
   HAL_ADC_Stop(&hadc1);
 
   return adc_value;
+}
+
+static uint32_t Read_Light_ADC(void)
+{
+  return Read_ADC_Channel(ADC_CHANNEL_4);
+}
+
+static uint32_t Read_Key_ADC(void)
+{
+  return Read_ADC_Channel(ADC_CHANNEL_1);
 }
 
 static uint8_t Get_Light_Level(uint32_t adc_value)
@@ -202,6 +242,56 @@ static void Set_Led_Level(uint8_t level)
   HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, level >= 1 ? GPIO_PIN_SET : GPIO_PIN_RESET);
   HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, level >= 2 ? GPIO_PIN_SET : GPIO_PIN_RESET);
   HAL_GPIO_WritePin(LED4_GPIO_Port, LED4_Pin, level >= 3 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+static Key_t Get_Key_By_UART(void)
+{
+  uint8_t rx_data = 0;
+
+  if (HAL_UART_Receive(&huart1, &rx_data, 1, 0) == HAL_OK)
+  {
+    if (rx_data == 'w' || rx_data == 'W')
+    {
+      return KEY_UP;
+    }
+    else if (rx_data == 's' || rx_data == 'S')
+    {
+      return KEY_DOWN;
+    }
+    else if (rx_data == 'a' || rx_data == 'A')
+    {
+      return KEY_LEFT;
+    }
+    else if (rx_data == 'd' || rx_data == 'D')
+    {
+      return KEY_RIGHT;
+    }
+    else if (rx_data == 'm' || rx_data == 'M')
+    {
+      return KEY_CENTER;
+    }
+  }
+
+  return KEY_NONE;
+}
+
+static const char *Key_To_String(Key_t key)
+{
+  switch (key)
+  {
+    case KEY_UP:
+      return "UP";
+    case KEY_DOWN:
+      return "DOWN";
+    case KEY_LEFT:
+      return "LEFT";
+    case KEY_RIGHT:
+      return "RIGHT";
+    case KEY_CENTER:
+      return "CENTER";
+    default:
+      return "NONE";
+  }
 }
 /* USER CODE END 4 */
 
