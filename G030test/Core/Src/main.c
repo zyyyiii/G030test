@@ -58,6 +58,7 @@ typedef enum
   #define ADC_SAMPLE_INTERVAL_MS 100
   #define LCD_REFRESH_INTERVAL_MS 500
   #define UART_REPORT_INTERVAL_MS 1000
+  #define LCD_CHARS_PER_LINE 16
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -92,6 +93,7 @@ static const char *Key_To_String(Key_t key);
 static const char *Mode_To_String(WorkMode_t mode);
 static void Process_Key(Key_t key);
 static void LCD_Show_Status(void);
+static void LCD_Draw_TextLine(uint16_t y, const char *text);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -135,7 +137,7 @@ int main(void)
 
   Lcd_Init();
   Lcd_Clear(BLACK);
-  Gui_DrawFont_GBK16(0, 0, WHITE, BLACK, (uint8_t *)"LCD OK");
+  LCD_Show_Status();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -419,24 +421,41 @@ static void Process_Key(Key_t key)
 
 static void LCD_Show_Status(void)
 {
-  char line[40];
-
-  Lcd_Clear(BLACK);
+  char line[32];
 
   sprintf(line, "Mode:%s", Mode_To_String(g_work_mode));
-  Gui_DrawFont_GBK16(0, 0, WHITE, BLACK, (uint8_t *)line);
+  LCD_Draw_TextLine(0, line);
 
   sprintf(line, "Light:%lu", g_light_adc);
-  Gui_DrawFont_GBK16(0, 20, WHITE, BLACK, (uint8_t *)line);
+  LCD_Draw_TextLine(16, line);
 
   sprintf(line, "Level:%d", g_led_level);
-  Gui_DrawFont_GBK16(0, 40, WHITE, BLACK, (uint8_t *)line);
+  LCD_Draw_TextLine(32, line);
 
-  sprintf(line, "Th:%lu/%lu/%lu",
+  sprintf(line, "T1:%lu T2:%lu",
           g_light_bright_threshold,
-          g_light_mid_threshold,
+          g_light_mid_threshold);
+  LCD_Draw_TextLine(48, line);
+
+  sprintf(line, "T3:%lu",
           g_light_dark_threshold);
-  Gui_DrawFont_GBK16(0, 60, WHITE, BLACK, (uint8_t *)line);
+  LCD_Draw_TextLine(64, line);
+}
+
+static void LCD_Draw_TextLine(uint16_t y, const char *text)
+{
+  char display[LCD_CHARS_PER_LINE + 1];
+  uint8_t i;
+
+  memset(display, ' ', LCD_CHARS_PER_LINE);
+  display[LCD_CHARS_PER_LINE] = '\0';
+
+  for (i = 0; i < LCD_CHARS_PER_LINE && text[i] != '\0'; i++)
+  {
+    display[i] = text[i];
+  }
+
+  Gui_DrawFont_GBK16(0, y, WHITE, BLACK, (uint8_t *)display);
 }
 /* USER CODE END 4 */
 
