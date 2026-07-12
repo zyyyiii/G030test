@@ -63,6 +63,16 @@ void Error_Handler(void);
 #define LED3_GPIO_Port GPIOB
 #define LED2_Pin GPIO_PIN_2
 #define LED2_GPIO_Port GPIOB
+#define CSS_Pin GPIO_PIN_15
+#define CSS_GPIO_Port GPIOA
+#define SCLK_Pin GPIO_PIN_3
+#define SCLK_GPIO_Port GPIOB
+#define MISO_Pin GPIO_PIN_4
+#define MISO_GPIO_Port GPIOB
+#define MOSI_Pin GPIO_PIN_5
+#define MOSI_GPIO_Port GPIOB
+#define LCD_Pin GPIO_PIN_6
+#define LCD_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

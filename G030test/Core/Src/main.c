@@ -26,6 +26,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
+#include "lcd.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -55,6 +56,7 @@ typedef enum
   #define LIGHT_DARK_THRESHOLD_DEFAULT 2800
   #define LIGHT_THRESHOLD_STEP 100
   #define ADC_SAMPLE_INTERVAL_MS 100
+  #define LCD_REFRESH_INTERVAL_MS 500
   #define UART_REPORT_INTERVAL_MS 1000
 /* USER CODE END PD */
 
@@ -89,6 +91,7 @@ static Key_t Get_Key_By_UART(void);
 static const char *Key_To_String(Key_t key);
 static const char *Mode_To_String(WorkMode_t mode);
 static void Process_Key(Key_t key);
+static void LCD_Show_Status(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -128,7 +131,11 @@ int main(void)
   MX_USART1_UART_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
+  HAL_GPIO_WritePin(CSS_GPIO_Port, CSS_Pin, GPIO_PIN_SET);
 
+  Lcd_Init();
+  Lcd_Clear(BLACK);
+  Gui_DrawFont_GBK16(0, 0, WHITE, BLACK, (uint8_t *)"LCD OK");
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -140,6 +147,7 @@ int main(void)
     /* USER CODE BEGIN 3 */
     uint32_t now = HAL_GetTick();
     static uint32_t last_adc_sample_tick = 0;
+    static uint32_t last_lcd_refresh_tick = 0;
     static uint32_t last_uart_report_tick = 0;
     Key_t uart_key = Get_Key_By_UART();
 
@@ -163,6 +171,12 @@ int main(void)
 
     Set_Led_Level(g_led_level);
 
+    if (now - last_lcd_refresh_tick >= LCD_REFRESH_INTERVAL_MS)
+    {
+      last_lcd_refresh_tick = now;
+      LCD_Show_Status();
+    }
+
     if (now - last_uart_report_tick >= UART_REPORT_INTERVAL_MS || uart_key != KEY_NONE)
     {
       char msg[180];
@@ -180,7 +194,7 @@ int main(void)
               g_light_dark_threshold);
       HAL_UART_Transmit(&huart1, (uint8_t *)msg, strlen(msg), 100);
     }
-    /* USER CODE END 3 */
+  /* USER CODE END 3 */
   }
 }
 
@@ -401,6 +415,28 @@ static void Process_Key(Key_t key)
       g_light_dark_threshold -= LIGHT_THRESHOLD_STEP;
     }
   }
+}
+
+static void LCD_Show_Status(void)
+{
+  char line[40];
+
+  Lcd_Clear(BLACK);
+
+  sprintf(line, "Mode:%s", Mode_To_String(g_work_mode));
+  Gui_DrawFont_GBK16(0, 0, WHITE, BLACK, (uint8_t *)line);
+
+  sprintf(line, "Light:%lu", g_light_adc);
+  Gui_DrawFont_GBK16(0, 20, WHITE, BLACK, (uint8_t *)line);
+
+  sprintf(line, "Level:%d", g_led_level);
+  Gui_DrawFont_GBK16(0, 40, WHITE, BLACK, (uint8_t *)line);
+
+  sprintf(line, "Th:%lu/%lu/%lu",
+          g_light_bright_threshold,
+          g_light_mid_threshold,
+          g_light_dark_threshold);
+  Gui_DrawFont_GBK16(0, 60, WHITE, BLACK, (uint8_t *)line);
 }
 /* USER CODE END 4 */
 

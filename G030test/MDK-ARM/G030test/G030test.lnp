@@ -6,6 +6,7 @@
 "g030test\usart.o"
 "g030test\stm32g0xx_it.o"
 "g030test\stm32g0xx_hal_msp.o"
+"g030test\lcd.o"
 "g030test\stm32g0xx_hal_adc.o"
 "g030test\stm32g0xx_hal_adc_ex.o"
 "g030test\stm32g0xx_ll_adc.o"

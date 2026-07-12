@@ -40,3 +40,4 @@ g030test\main.o: ../Core/Inc/usart.h
 g030test\main.o: ../Core/Inc/gpio.h
 g030test\main.o: D:\Keil_v5\ARM\ARM_COMPILER_5\Bin\..\include\stdio.h
 g030test\main.o: D:\Keil_v5\ARM\ARM_COMPILER_5\Bin\..\include\string.h
+g030test\main.o: ../LCD/lcd.h
