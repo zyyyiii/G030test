@@ -1,0 +1,23 @@
+{
+  "configurations": [
+    {
+      "name": "STM32G030-Keil",
+      "includePath": [
+        "${workspaceFolder}/G030test/Core/Inc",
+        "${workspaceFolder}/G030test/Drivers/STM32G0xx_HAL_Driver/Inc",
+        "${workspaceFolder}/G030test/Drivers/STM32G0xx_HAL_Driver/Inc/Legacy",
+        "${workspaceFolder}/G030test/Drivers/CMSIS/Device/ST/STM32G0xx/Include",
+        "${workspaceFolder}/G030test/Drivers/CMSIS/Include"
+      ],
+      "defines": [
+        "USE_HAL_DRIVER",
+        "STM32G030xx"
+      ],
+      "compilerPath": "",
+      "cStandard": "c99",
+      "cppStandard": "c++14",
+      "intelliSenseMode": "windows-msvc-arm"
+    }
+  ],
+  "version": 4
+}

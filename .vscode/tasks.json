@@ -1,0 +1,60 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Keil: Build",
+      "type": "process",
+      "command": "D:\\Keil_v5\\UV4\\UV4.exe",
+      "args": [
+        "-b",
+        "${workspaceFolder}\\G030test\\MDK-ARM\\G030test.uvprojx",
+        "-t",
+        "G030test",
+        "-o",
+        "${workspaceFolder}\\G030test\\MDK-ARM\\build.log"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Keil: Rebuild",
+      "type": "process",
+      "command": "D:\\Keil_v5\\UV4\\UV4.exe",
+      "args": [
+        "-r",
+        "${workspaceFolder}\\G030test\\MDK-ARM\\G030test.uvprojx",
+        "-t",
+        "G030test",
+        "-o",
+        "${workspaceFolder}\\G030test\\MDK-ARM\\rebuild.log"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Keil: Flash",
+      "type": "process",
+      "command": "D:\\Keil_v5\\UV4\\UV4.exe",
+      "args": [
+        "-f",
+        "${workspaceFolder}\\G030test\\MDK-ARM\\G030test.uvprojx",
+        "-t",
+        "G030test",
+        "-o",
+        "${workspaceFolder}\\G030test\\MDK-ARM\\flash.log"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Keil: Build and Flash",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Keil: Build",
+        "Keil: Flash"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}
