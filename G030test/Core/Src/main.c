@@ -40,13 +40,22 @@ typedef enum
   KEY_CENTER
 } Key_t;
 
+typedef enum
+{
+  MODE_AUTO = 0,
+  MODE_MANUAL
+} WorkMode_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-  #define LIGHT_BRIGHT_THRESHOLD 500
-  #define LIGHT_MID_THRESHOLD 1800
-  #define LIGHT_DARK_THRESHOLD 2800
+  #define LIGHT_BRIGHT_THRESHOLD_DEFAULT 500
+  #define LIGHT_MID_THRESHOLD_DEFAULT 1800
+  #define LIGHT_DARK_THRESHOLD_DEFAULT 2800
+  #define LIGHT_THRESHOLD_STEP 100
+  #define ADC_SAMPLE_INTERVAL_MS 100
+  #define UART_REPORT_INTERVAL_MS 1000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -57,6 +66,14 @@ typedef enum
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+static WorkMode_t g_work_mode = MODE_AUTO;
+static uint8_t g_manual_level = 0;
+static uint32_t g_light_bright_threshold = LIGHT_BRIGHT_THRESHOLD_DEFAULT;
+static uint32_t g_light_mid_threshold = LIGHT_MID_THRESHOLD_DEFAULT;
+static uint32_t g_light_dark_threshold = LIGHT_DARK_THRESHOLD_DEFAULT;
+static uint32_t g_light_adc = 0;
+static uint32_t g_key_adc = 0;
+static uint8_t g_led_level = 0;
 
 /* USER CODE END PV */
 
@@ -70,6 +87,8 @@ static uint8_t Get_Light_Level(uint32_t adc_value);
 static void Set_Led_Level(uint8_t level);
 static Key_t Get_Key_By_UART(void);
 static const char *Key_To_String(Key_t key);
+static const char *Mode_To_String(WorkMode_t mode);
+static void Process_Key(Key_t key);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -119,23 +138,48 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    uint32_t light_adc = Read_Light_ADC();
-    uint32_t key_adc = Read_Key_ADC();
-    uint8_t led_level = Get_Light_Level(light_adc);
+    uint32_t now = HAL_GetTick();
+    static uint32_t last_adc_sample_tick = 0;
+    static uint32_t last_uart_report_tick = 0;
     Key_t uart_key = Get_Key_By_UART();
-    char msg[120];
 
-    Set_Led_Level(led_level);
+    Process_Key(uart_key);
 
-    sprintf(msg,
-            "light=%lu, key_adc=%lu, uart_key=%s, level=%d\r\n",
-            light_adc,
-            key_adc,
-            Key_To_String(uart_key),
-            led_level);
-    HAL_UART_Transmit(&huart1, (uint8_t *)msg, strlen(msg), 100);
+    if (now - last_adc_sample_tick >= ADC_SAMPLE_INTERVAL_MS)
+    {
+      last_adc_sample_tick = now;
+      g_light_adc = Read_Light_ADC();
+      g_key_adc = Read_Key_ADC();
+    }
 
-    HAL_Delay(300);
+    if (g_work_mode == MODE_AUTO)
+    {
+      g_led_level = Get_Light_Level(g_light_adc);
+    }
+    else
+    {
+      g_led_level = g_manual_level;
+    }
+
+    Set_Led_Level(g_led_level);
+
+    if (now - last_uart_report_tick >= UART_REPORT_INTERVAL_MS || uart_key != KEY_NONE)
+    {
+      char msg[180];
+
+      last_uart_report_tick = now;
+      sprintf(msg,
+              "mode=%s, light=%lu, key_adc=%lu, uart_key=%s, level=%d, th=%lu/%lu/%lu\r\n",
+              Mode_To_String(g_work_mode),
+              g_light_adc,
+              g_key_adc,
+              Key_To_String(uart_key),
+              g_led_level,
+              g_light_bright_threshold,
+              g_light_mid_threshold,
+              g_light_dark_threshold);
+      HAL_UART_Transmit(&huart1, (uint8_t *)msg, strlen(msg), 100);
+    }
     /* USER CODE END 3 */
   }
 }
@@ -219,15 +263,15 @@ static uint32_t Read_Key_ADC(void)
 
 static uint8_t Get_Light_Level(uint32_t adc_value)
 {
-  if (adc_value < LIGHT_BRIGHT_THRESHOLD)
+  if (adc_value < g_light_bright_threshold)
   {
     return 0;
   }
-  else if (adc_value < LIGHT_MID_THRESHOLD)
+  else if (adc_value < g_light_mid_threshold)
   {
     return 1;
   }
-  else if (adc_value < LIGHT_DARK_THRESHOLD)
+  else if (adc_value < g_light_dark_threshold)
   {
     return 2;
   }
@@ -247,32 +291,36 @@ static void Set_Led_Level(uint8_t level)
 static Key_t Get_Key_By_UART(void)
 {
   uint8_t rx_data = 0;
+  uint8_t read_count = 0;
+  Key_t key = KEY_NONE;
 
-  if (HAL_UART_Receive(&huart1, &rx_data, 1, 0) == HAL_OK)
+  while (read_count < 16 && HAL_UART_Receive(&huart1, &rx_data, 1, 0) == HAL_OK)
   {
+    read_count++;
+
     if (rx_data == 'w' || rx_data == 'W')
     {
-      return KEY_UP;
+      key = KEY_UP;
     }
     else if (rx_data == 's' || rx_data == 'S')
     {
-      return KEY_DOWN;
+      key = KEY_DOWN;
     }
     else if (rx_data == 'a' || rx_data == 'A')
     {
-      return KEY_LEFT;
+      key = KEY_LEFT;
     }
     else if (rx_data == 'd' || rx_data == 'D')
     {
-      return KEY_RIGHT;
+      key = KEY_RIGHT;
     }
     else if (rx_data == 'm' || rx_data == 'M')
     {
-      return KEY_CENTER;
+      key = KEY_CENTER;
     }
   }
 
-  return KEY_NONE;
+  return key;
 }
 
 static const char *Key_To_String(Key_t key)
@@ -291,6 +339,67 @@ static const char *Key_To_String(Key_t key)
       return "CENTER";
     default:
       return "NONE";
+  }
+}
+
+static const char *Mode_To_String(WorkMode_t mode)
+{
+  if (mode == MODE_MANUAL)
+  {
+    return "MANUAL";
+  }
+
+  return "AUTO";
+}
+
+static void Process_Key(Key_t key)
+{
+  if (key == KEY_CENTER)
+  {
+    if (g_work_mode == MODE_AUTO)
+    {
+      g_work_mode = MODE_MANUAL;
+      g_manual_level = 0;
+    }
+    else
+    {
+      g_work_mode = MODE_AUTO;
+    }
+  }
+  else if (key == KEY_LEFT)
+  {
+    if (g_work_mode == MODE_MANUAL && g_manual_level > 0)
+    {
+      g_manual_level--;
+    }
+  }
+  else if (key == KEY_RIGHT)
+  {
+    if (g_work_mode == MODE_MANUAL && g_manual_level < 3)
+    {
+      g_manual_level++;
+    }
+  }
+  else if (key == KEY_UP)
+  {
+    g_light_bright_threshold += LIGHT_THRESHOLD_STEP;
+    g_light_mid_threshold += LIGHT_THRESHOLD_STEP;
+    g_light_dark_threshold += LIGHT_THRESHOLD_STEP;
+  }
+  else if (key == KEY_DOWN)
+  {
+    if (g_light_bright_threshold > LIGHT_THRESHOLD_STEP)
+    {
+      g_light_bright_threshold -= LIGHT_THRESHOLD_STEP;
+    }
+    if (g_light_mid_threshold > LIGHT_THRESHOLD_STEP)
+    {
+      g_light_mid_threshold -= LIGHT_THRESHOLD_STEP;
+    }
+    if (g_light_dark_threshold > LIGHT_THRESHOLD_STEP)
+    {
+      g_light_dark_threshold -= LIGHT_THRESHOLD_STEP;
+    }
   }
 }
 /* USER CODE END 4 */
