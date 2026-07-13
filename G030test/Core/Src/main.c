@@ -82,7 +82,8 @@ typedef struct
   #define LCD_MESSAGE_HOLD_MS 2000
   #define SOFT_PWM_LED_STEPS 200
   #define SOFT_PWM_TOTAL_STEPS SOFT_PWM_LED_STEPS
-  #define MANUAL_PWM_STEP 10
+  #define PWM_LEVEL_MAX 20
+  #define UART_RX_DRAIN_LIMIT 128
   #define LCD_CHARS_PER_LINE 16
   #define LED_ON GPIO_PIN_RESET
   #define LED_OFF GPIO_PIN_SET
@@ -101,7 +102,7 @@ typedef struct
 /* USER CODE BEGIN PV */
 static WorkMode_t g_work_mode = MODE_AUTO;
 static uint8_t g_manual_level = 0;
-static uint16_t g_manual_pwm_brightness = 0;
+static uint8_t g_manual_pwm_level = 0;
 static uint32_t g_light_bright_threshold = LIGHT_BRIGHT_THRESHOLD_DEFAULT;
 static uint32_t g_light_mid_threshold = LIGHT_MID_THRESHOLD_DEFAULT;
 static uint32_t g_light_dark_threshold = LIGHT_DARK_THRESHOLD_DEFAULT;
@@ -112,6 +113,14 @@ static volatile LightOutputMode_t g_output_mode = OUTPUT_STEP;
 static volatile uint16_t g_pwm_brightness = 0;
 static const char *g_lcd_message = "";
 static uint32_t g_lcd_message_until = 0;
+static const uint16_t g_pwm_gamma_table[PWM_LEVEL_MAX + 1] =
+{
+  0, 1, 2, 4, 7,
+  11, 16, 23, 31, 41,
+  53, 66, 81, 98, 116,
+  135, 154, 172, 186, 195,
+  200
+};
 
 /* USER CODE END PV */
 
@@ -131,6 +140,8 @@ static void Process_Key(Key_t key);
 static void LCD_Show_Status(void);
 static void LCD_Draw_TextLine(uint16_t y, const char *text);
 static void LCD_Set_Message(const char *message, uint32_t hold_ms);
+static uint16_t PWM_Level_To_Duty(uint8_t level);
+static uint8_t PWM_Duty_To_Level(uint16_t duty);
 static uint16_t Get_PWM_Brightness(uint32_t adc_value);
 static void Soft_PWM_Update(void);
 static uint32_t Config_Calc_Checksum(const AppConfig_t *config);
@@ -232,7 +243,7 @@ int main(void)
     else
     {
       g_led_level = g_manual_level;
-      g_pwm_brightness = g_manual_pwm_brightness;
+      g_pwm_brightness = PWM_Level_To_Duty(g_manual_pwm_level);
     }
 
     if (g_output_mode == OUTPUT_STEP)
@@ -252,7 +263,7 @@ int main(void)
 
       last_uart_report_tick = now;
       sprintf(msg,
-              "mode=%s, output=%s, light=%lu, key_adc=%lu, uart_key=%s, level=%d, pwm=%d, th=%lu/%lu/%lu\r\n",
+              "mode=%s, output=%s, light=%lu, key_adc=%lu, uart_key=%s, level=%d, pwm=%d, pwm_level=%d, th=%lu/%lu/%lu\r\n",
               Mode_To_String(g_work_mode),
               Output_Mode_To_String(g_output_mode),
               g_light_adc,
@@ -260,6 +271,7 @@ int main(void)
               Key_To_String(uart_key),
               g_led_level,
               g_pwm_brightness,
+              PWM_Duty_To_Level(g_pwm_brightness),
               g_light_bright_threshold,
               g_light_mid_threshold,
               g_light_dark_threshold);
@@ -373,25 +385,50 @@ static void Set_Led_Level(uint8_t level)
   HAL_GPIO_WritePin(LED4_GPIO_Port, LED4_Pin, level >= 3 ? LED_ON : LED_OFF);
 }
 
+static uint16_t PWM_Level_To_Duty(uint8_t level)
+{
+  if (level > PWM_LEVEL_MAX)
+  {
+    level = PWM_LEVEL_MAX;
+  }
+
+  return g_pwm_gamma_table[level];
+}
+
+static uint8_t PWM_Duty_To_Level(uint16_t duty)
+{
+  uint8_t level;
+
+  for (level = 0; level < PWM_LEVEL_MAX; level++)
+  {
+    if (duty <= g_pwm_gamma_table[level])
+    {
+      return level;
+    }
+  }
+
+  return PWM_LEVEL_MAX;
+}
+
 static uint16_t Get_PWM_Brightness(uint32_t adc_value)
 {
   uint32_t span;
-  uint32_t brightness;
+  uint32_t level;
 
   if (adc_value <= g_light_bright_threshold)
   {
-    return 0;
+    return PWM_Level_To_Duty(0);
   }
 
   if (adc_value >= g_light_dark_threshold)
   {
-    return SOFT_PWM_TOTAL_STEPS;
+    return PWM_Level_To_Duty(PWM_LEVEL_MAX);
   }
 
   span = g_light_dark_threshold - g_light_bright_threshold;
-  brightness = ((adc_value - g_light_bright_threshold) * SOFT_PWM_TOTAL_STEPS + span / 2U) / span;
+  level = ((adc_value - g_light_bright_threshold) * PWM_LEVEL_MAX + span / 2U) / span;
 
-  return (uint16_t)brightness;
+  return PWM_Level_To_Duty((uint8_t)level);
 }
 
 static void Soft_PWM_Update(void)
@@ -430,7 +467,7 @@ static Key_t Get_Key_By_UART(void)
   uint8_t read_count = 0;
   Key_t key = KEY_NONE;
 
-  while (read_count < 16 && HAL_UART_Receive(&huart1, &rx_data, 1, 0) == HAL_OK)
+  while (read_count < UART_RX_DRAIN_LIMIT && HAL_UART_Receive(&huart1, &rx_data, 1, 0) == HAL_OK)
   {
     read_count++;
 
@@ -524,7 +561,7 @@ static void Process_Key(Key_t key)
     {
       g_work_mode = MODE_MANUAL;
       g_manual_level = g_led_level;
-      g_manual_pwm_brightness = g_pwm_brightness;
+      g_manual_pwm_level = PWM_Duty_To_Level(g_pwm_brightness);
     }
     else
     {
@@ -535,13 +572,9 @@ static void Process_Key(Key_t key)
   {
     if (g_work_mode == MODE_MANUAL && g_output_mode == OUTPUT_PWM)
     {
-      if (g_manual_pwm_brightness > MANUAL_PWM_STEP)
+      if (g_manual_pwm_level > 0)
       {
-        g_manual_pwm_brightness -= MANUAL_PWM_STEP;
-      }
-      else
-      {
-        g_manual_pwm_brightness = 0;
+        g_manual_pwm_level--;
       }
     }
     else if (g_work_mode == MODE_MANUAL && g_manual_level > 0)
@@ -553,13 +586,9 @@ static void Process_Key(Key_t key)
   {
     if (g_work_mode == MODE_MANUAL && g_output_mode == OUTPUT_PWM)
     {
-      if (g_manual_pwm_brightness + MANUAL_PWM_STEP < SOFT_PWM_TOTAL_STEPS)
+      if (g_manual_pwm_level < PWM_LEVEL_MAX)
       {
-        g_manual_pwm_brightness += MANUAL_PWM_STEP;
-      }
-      else
-      {
-        g_manual_pwm_brightness = SOFT_PWM_TOTAL_STEPS;
+        g_manual_pwm_level++;
       }
     }
     else if (g_work_mode == MODE_MANUAL && g_manual_level < 3)
