@@ -51,14 +51,16 @@ typedef enum
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-  #define LIGHT_BRIGHT_THRESHOLD_DEFAULT 500
-  #define LIGHT_MID_THRESHOLD_DEFAULT 1800
-  #define LIGHT_DARK_THRESHOLD_DEFAULT 2800
+  #define LIGHT_BRIGHT_THRESHOLD_DEFAULT 1000
+  #define LIGHT_MID_THRESHOLD_DEFAULT 2300
+  #define LIGHT_DARK_THRESHOLD_DEFAULT 3200
   #define LIGHT_THRESHOLD_STEP 100
   #define ADC_SAMPLE_INTERVAL_MS 100
   #define LCD_REFRESH_INTERVAL_MS 500
   #define UART_REPORT_INTERVAL_MS 1000
   #define LCD_CHARS_PER_LINE 16
+  #define LED_ON GPIO_PIN_RESET
+  #define LED_OFF GPIO_PIN_SET
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -299,9 +301,9 @@ static uint8_t Get_Light_Level(uint32_t adc_value)
 
 static void Set_Led_Level(uint8_t level)
 {
-  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, level >= 1 ? GPIO_PIN_SET : GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, level >= 2 ? GPIO_PIN_SET : GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(LED4_GPIO_Port, LED4_Pin, level >= 3 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, level >= 1 ? LED_ON : LED_OFF);
+  HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, level >= 2 ? LED_ON : LED_OFF);
+  HAL_GPIO_WritePin(LED4_GPIO_Port, LED4_Pin, level >= 3 ? LED_ON : LED_OFF);
 }
 
 static Key_t Get_Key_By_UART(void)
