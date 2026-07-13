@@ -38,7 +38,9 @@ typedef enum
   KEY_DOWN,
   KEY_LEFT,
   KEY_RIGHT,
-  KEY_CENTER
+  KEY_CENTER,
+  KEY_SAVE,
+  KEY_RESET_DEFAULT
 } Key_t;
 
 typedef enum
@@ -46,6 +48,16 @@ typedef enum
   MODE_AUTO = 0,
   MODE_MANUAL
 } WorkMode_t;
+
+typedef struct
+{
+  uint32_t magic;
+  uint32_t version;
+  uint32_t bright_threshold;
+  uint32_t mid_threshold;
+  uint32_t dark_threshold;
+  uint32_t checksum;
+} AppConfig_t;
 
 /* USER CODE END PTD */
 
@@ -55,12 +67,17 @@ typedef enum
   #define LIGHT_MID_THRESHOLD_DEFAULT 2300
   #define LIGHT_DARK_THRESHOLD_DEFAULT 3200
   #define LIGHT_THRESHOLD_STEP 100
+  #define LIGHT_THRESHOLD_MAX 4095
   #define ADC_SAMPLE_INTERVAL_MS 100
   #define LCD_REFRESH_INTERVAL_MS 500
   #define UART_REPORT_INTERVAL_MS 1000
+  #define LCD_MESSAGE_HOLD_MS 2000
   #define LCD_CHARS_PER_LINE 16
   #define LED_ON GPIO_PIN_RESET
   #define LED_OFF GPIO_PIN_SET
+  #define CONFIG_MAGIC 0x20260713U
+  #define CONFIG_VERSION 1U
+  #define CONFIG_FLASH_ADDRESS (FLASH_BASE + FLASH_SIZE - FLASH_PAGE_SIZE)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -79,6 +96,8 @@ static uint32_t g_light_dark_threshold = LIGHT_DARK_THRESHOLD_DEFAULT;
 static uint32_t g_light_adc = 0;
 static uint32_t g_key_adc = 0;
 static uint8_t g_led_level = 0;
+static const char *g_lcd_message = "";
+static uint32_t g_lcd_message_until = 0;
 
 /* USER CODE END PV */
 
@@ -96,6 +115,12 @@ static const char *Mode_To_String(WorkMode_t mode);
 static void Process_Key(Key_t key);
 static void LCD_Show_Status(void);
 static void LCD_Draw_TextLine(uint16_t y, const char *text);
+static void LCD_Set_Message(const char *message, uint32_t hold_ms);
+static uint32_t Config_Calc_Checksum(const AppConfig_t *config);
+static uint8_t Config_Is_Valid(const AppConfig_t *config);
+static void Config_Load(void);
+static uint8_t Config_Save(void);
+static void Config_Reset_Defaults(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -135,6 +160,8 @@ int main(void)
   MX_USART1_UART_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
+  Config_Load();
+
   HAL_GPIO_WritePin(CSS_GPIO_Port, CSS_Pin, GPIO_PIN_SET);
 
   Lcd_Init();
@@ -336,6 +363,14 @@ static Key_t Get_Key_By_UART(void)
     {
       key = KEY_CENTER;
     }
+    else if (rx_data == 'p' || rx_data == 'P')
+    {
+      key = KEY_SAVE;
+    }
+    else if (rx_data == 'r' || rx_data == 'R')
+    {
+      key = KEY_RESET_DEFAULT;
+    }
   }
 
   return key;
@@ -355,6 +390,10 @@ static const char *Key_To_String(Key_t key)
       return "RIGHT";
     case KEY_CENTER:
       return "CENTER";
+    case KEY_SAVE:
+      return "SAVE";
+    case KEY_RESET_DEFAULT:
+      return "RESET";
     default:
       return "NONE";
   }
@@ -400,9 +439,12 @@ static void Process_Key(Key_t key)
   }
   else if (key == KEY_UP)
   {
-    g_light_bright_threshold += LIGHT_THRESHOLD_STEP;
-    g_light_mid_threshold += LIGHT_THRESHOLD_STEP;
-    g_light_dark_threshold += LIGHT_THRESHOLD_STEP;
+    if (g_light_dark_threshold + LIGHT_THRESHOLD_STEP <= LIGHT_THRESHOLD_MAX)
+    {
+      g_light_bright_threshold += LIGHT_THRESHOLD_STEP;
+      g_light_mid_threshold += LIGHT_THRESHOLD_STEP;
+      g_light_dark_threshold += LIGHT_THRESHOLD_STEP;
+    }
   }
   else if (key == KEY_DOWN)
   {
@@ -419,11 +461,144 @@ static void Process_Key(Key_t key)
       g_light_dark_threshold -= LIGHT_THRESHOLD_STEP;
     }
   }
+  else if (key == KEY_SAVE)
+  {
+    if (Config_Save())
+    {
+      LCD_Set_Message("Config SAVED", LCD_MESSAGE_HOLD_MS);
+    }
+    else
+    {
+      LCD_Set_Message("Save FAILED", LCD_MESSAGE_HOLD_MS);
+    }
+    LCD_Show_Status();
+  }
+  else if (key == KEY_RESET_DEFAULT)
+  {
+    Config_Reset_Defaults();
+    LCD_Set_Message("Default RAM", LCD_MESSAGE_HOLD_MS);
+    LCD_Show_Status();
+  }
+}
+
+static uint32_t Config_Calc_Checksum(const AppConfig_t *config)
+{
+  return config->magic
+         ^ config->version
+         ^ config->bright_threshold
+         ^ config->mid_threshold
+         ^ config->dark_threshold
+         ^ 0xA5A5A5A5U;
+}
+
+static uint8_t Config_Is_Valid(const AppConfig_t *config)
+{
+  if (config->magic != CONFIG_MAGIC || config->version != CONFIG_VERSION)
+  {
+    return 0;
+  }
+
+  if (config->checksum != Config_Calc_Checksum(config))
+  {
+    return 0;
+  }
+
+  if (config->bright_threshold >= config->mid_threshold
+      || config->mid_threshold >= config->dark_threshold
+      || config->dark_threshold > LIGHT_THRESHOLD_MAX)
+  {
+    return 0;
+  }
+
+  return 1;
+}
+
+static void Config_Load(void)
+{
+  const AppConfig_t *config = (const AppConfig_t *)CONFIG_FLASH_ADDRESS;
+
+  if (Config_Is_Valid(config))
+  {
+    g_light_bright_threshold = config->bright_threshold;
+    g_light_mid_threshold = config->mid_threshold;
+    g_light_dark_threshold = config->dark_threshold;
+  }
+  else
+  {
+    Config_Reset_Defaults();
+  }
+}
+
+static uint8_t Config_Save(void)
+{
+  AppConfig_t config;
+  FLASH_EraseInitTypeDef erase_init = {0};
+  uint32_t page_error = 0;
+  uint32_t page = (CONFIG_FLASH_ADDRESS - FLASH_BASE) / FLASH_PAGE_SIZE;
+  uint32_t words[sizeof(AppConfig_t) / sizeof(uint32_t)];
+  uint32_t i;
+  uint8_t save_ok = 0;
+  const AppConfig_t *saved_config = (const AppConfig_t *)CONFIG_FLASH_ADDRESS;
+
+  config.magic = CONFIG_MAGIC;
+  config.version = CONFIG_VERSION;
+  config.bright_threshold = g_light_bright_threshold;
+  config.mid_threshold = g_light_mid_threshold;
+  config.dark_threshold = g_light_dark_threshold;
+  config.checksum = Config_Calc_Checksum(&config);
+
+  memcpy(words, &config, sizeof(config));
+
+  HAL_FLASH_Unlock();
+
+  erase_init.TypeErase = FLASH_TYPEERASE_PAGES;
+  erase_init.Banks = FLASH_BANK_1;
+  erase_init.Page = page;
+  erase_init.NbPages = 1;
+
+  if (HAL_FLASHEx_Erase(&erase_init, &page_error) == HAL_OK)
+  {
+    save_ok = 1;
+
+    for (i = 0; i < sizeof(AppConfig_t) / 8U; i++)
+    {
+      uint64_t data = ((uint64_t)words[i * 2U + 1U] << 32) | words[i * 2U];
+
+      if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD,
+                            CONFIG_FLASH_ADDRESS + i * 8U,
+                            data) != HAL_OK)
+      {
+        save_ok = 0;
+        break;
+      }
+    }
+  }
+
+  HAL_FLASH_Lock();
+
+  if (save_ok
+      && Config_Is_Valid(saved_config)
+      && saved_config->bright_threshold == g_light_bright_threshold
+      && saved_config->mid_threshold == g_light_mid_threshold
+      && saved_config->dark_threshold == g_light_dark_threshold)
+  {
+    return 1;
+  }
+
+  return 0;
+}
+
+static void Config_Reset_Defaults(void)
+{
+  g_light_bright_threshold = LIGHT_BRIGHT_THRESHOLD_DEFAULT;
+  g_light_mid_threshold = LIGHT_MID_THRESHOLD_DEFAULT;
+  g_light_dark_threshold = LIGHT_DARK_THRESHOLD_DEFAULT;
 }
 
 static void LCD_Show_Status(void)
 {
   char line[32];
+  const char *message = "";
 
   sprintf(line, "Mode:%s", Mode_To_String(g_work_mode));
   LCD_Draw_TextLine(0, line);
@@ -442,6 +617,12 @@ static void LCD_Show_Status(void)
   sprintf(line, "T3:%lu",
           g_light_dark_threshold);
   LCD_Draw_TextLine(64, line);
+
+  if (HAL_GetTick() < g_lcd_message_until)
+  {
+    message = g_lcd_message;
+  }
+  LCD_Draw_TextLine(80, message);
 }
 
 static void LCD_Draw_TextLine(uint16_t y, const char *text)
@@ -458,6 +639,12 @@ static void LCD_Draw_TextLine(uint16_t y, const char *text)
   }
 
   Gui_DrawFont_GBK16(0, y, WHITE, BLACK, (uint8_t *)display);
+}
+
+static void LCD_Set_Message(const char *message, uint32_t hold_ms)
+{
+  g_lcd_message = message;
+  g_lcd_message_until = HAL_GetTick() + hold_ms;
 }
 /* USER CODE END 4 */
 
