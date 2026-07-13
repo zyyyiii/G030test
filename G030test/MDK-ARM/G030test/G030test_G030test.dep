@@ -1,7 +1,7 @@
 Dependencies for Project 'G030test', Target 'G030test': (DO NOT MODIFY !)
 CompilerVersion: 5060960::V5.06 update 7 (build 960)::.\ARM_COMPILER_5
 F (startup_stm32g030xx.s)(0x6A53B1CC)(--cpu Cortex-M0+ -g --apcs=interwork -I.\RTE\_G030test-I"D:\keil pack\ARM\CMSIS\6.1.0\CMSIS\Core\Include"--pd "__UVISION_VERSION SETA 538" --pd "_RTE_ SETA 1" --pd "STM32G030xx SETA 1" --pd "_RTE_ SETA 1"--list startup_stm32g030xx.lst --xref -o g030test\startup_stm32g030xx.o --depend g030test\startup_stm32g030xx.d)
-F (../Core/Src/main.c)(0x6A5447BB)(--c99 -c --cpu Cortex-M0+ -g -O3 --apcs=interwork --split_sections -I ../Core/Inc -I ../Drivers/STM32G0xx_HAL_Driver/Inc -I ../Drivers/STM32G0xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32G0xx/Include -I ../Drivers/CMSIS/Include -I ../LCD-I.\RTE\_G030test-I"D:\keil pack\ARM\CMSIS\6.1.0\CMSIS\Core\Include"-D__UVISION_VERSION="538" -D_RTE_ -DSTM32G030xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32G030xx-o g030test\main.o --omf_browse g030test\main.crf --depend g030test\main.d)
+F (../Core/Src/main.c)(0x6A544F24)(--c99 -c --cpu Cortex-M0+ -g -O3 --apcs=interwork --split_sections -I ../Core/Inc -I ../Drivers/STM32G0xx_HAL_Driver/Inc -I ../Drivers/STM32G0xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32G0xx/Include -I ../Drivers/CMSIS/Include -I ../LCD-I.\RTE\_G030test-I"D:\keil pack\ARM\CMSIS\6.1.0\CMSIS\Core\Include"-D__UVISION_VERSION="538" -D_RTE_ -DSTM32G030xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32G030xx-o g030test\main.o --omf_browse g030test\main.crf --depend g030test\main.d)
 I (../Core/Inc/main.h)(0x6A53B1CB)
 I (../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal.h)(0x6A4B6758)
 I (../Core/Inc/stm32g0xx_hal_conf.h)(0x6A534A69)
@@ -154,7 +154,7 @@ I (../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_pwr.h)(0x6A4B6758)
 I (../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_pwr_ex.h)(0x6A4B6758)
 I (../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_uart.h)(0x6A4B6758)
 I (../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_uart_ex.h)(0x6A4B6758)
-F (../Core/Src/stm32g0xx_it.c)(0x6A53373C)(--c99 -c --cpu Cortex-M0+ -g -O3 --apcs=interwork --split_sections -I ../Core/Inc -I ../Drivers/STM32G0xx_HAL_Driver/Inc -I ../Drivers/STM32G0xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32G0xx/Include -I ../Drivers/CMSIS/Include -I ../LCD-I.\RTE\_G030test-I"D:\keil pack\ARM\CMSIS\6.1.0\CMSIS\Core\Include"-D__UVISION_VERSION="538" -D_RTE_ -DSTM32G030xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32G030xx-o g030test\stm32g0xx_it.o --omf_browse g030test\stm32g0xx_it.crf --depend g030test\stm32g0xx_it.d)
+F (../Core/Src/stm32g0xx_it.c)(0x6A544F2C)(--c99 -c --cpu Cortex-M0+ -g -O3 --apcs=interwork --split_sections -I ../Core/Inc -I ../Drivers/STM32G0xx_HAL_Driver/Inc -I ../Drivers/STM32G0xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32G0xx/Include -I ../Drivers/CMSIS/Include -I ../LCD-I.\RTE\_G030test-I"D:\keil pack\ARM\CMSIS\6.1.0\CMSIS\Core\Include"-D__UVISION_VERSION="538" -D_RTE_ -DSTM32G030xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32G030xx-o g030test\stm32g0xx_it.o --omf_browse g030test\stm32g0xx_it.crf --depend g030test\stm32g0xx_it.d)
 I (../Core/Inc/main.h)(0x6A53B1CB)
 I (../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal.h)(0x6A4B6758)
 I (../Core/Inc/stm32g0xx_hal_conf.h)(0x6A534A69)

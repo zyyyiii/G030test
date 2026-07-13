@@ -40,7 +40,8 @@ typedef enum
   KEY_RIGHT,
   KEY_CENTER,
   KEY_SAVE,
-  KEY_RESET_DEFAULT
+  KEY_RESET_DEFAULT,
+  KEY_OUTPUT_MODE
 } Key_t;
 
 typedef enum
@@ -48,6 +49,12 @@ typedef enum
   MODE_AUTO = 0,
   MODE_MANUAL
 } WorkMode_t;
+
+typedef enum
+{
+  OUTPUT_STEP = 0,
+  OUTPUT_PWM
+} LightOutputMode_t;
 
 typedef struct
 {
@@ -72,6 +79,8 @@ typedef struct
   #define LCD_REFRESH_INTERVAL_MS 500
   #define UART_REPORT_INTERVAL_MS 1000
   #define LCD_MESSAGE_HOLD_MS 2000
+  #define SOFT_PWM_LED_STEPS 10
+  #define SOFT_PWM_TOTAL_STEPS (SOFT_PWM_LED_STEPS * 3)
   #define LCD_CHARS_PER_LINE 16
   #define LED_ON GPIO_PIN_RESET
   #define LED_OFF GPIO_PIN_SET
@@ -96,6 +105,8 @@ static uint32_t g_light_dark_threshold = LIGHT_DARK_THRESHOLD_DEFAULT;
 static uint32_t g_light_adc = 0;
 static uint32_t g_key_adc = 0;
 static uint8_t g_led_level = 0;
+static volatile LightOutputMode_t g_output_mode = OUTPUT_STEP;
+static volatile uint8_t g_pwm_brightness = 0;
 static const char *g_lcd_message = "";
 static uint32_t g_lcd_message_until = 0;
 
@@ -112,10 +123,15 @@ static void Set_Led_Level(uint8_t level);
 static Key_t Get_Key_By_UART(void);
 static const char *Key_To_String(Key_t key);
 static const char *Mode_To_String(WorkMode_t mode);
+static const char *Output_Mode_To_String(LightOutputMode_t mode);
 static void Process_Key(Key_t key);
 static void LCD_Show_Status(void);
 static void LCD_Draw_TextLine(uint16_t y, const char *text);
 static void LCD_Set_Message(const char *message, uint32_t hold_ms);
+static uint8_t Get_PWM_Brightness(uint32_t adc_value);
+static uint8_t Get_PWM_Led_Duty(uint8_t brightness, uint8_t led_index);
+static void Soft_PWM_Update(void);
+void App_Systick_1ms(void);
 static uint32_t Config_Calc_Checksum(const AppConfig_t *config);
 static uint8_t Config_Is_Valid(const AppConfig_t *config);
 static void Config_Load(void);
@@ -186,21 +202,36 @@ int main(void)
 
     if (now - last_adc_sample_tick >= ADC_SAMPLE_INTERVAL_MS)
     {
+      uint32_t raw_light_adc;
+
       last_adc_sample_tick = now;
-      g_light_adc = Read_Light_ADC();
+      raw_light_adc = Read_Light_ADC();
+      if (g_light_adc == 0)
+      {
+        g_light_adc = raw_light_adc;
+      }
+      else
+      {
+        g_light_adc = (g_light_adc * 3U + raw_light_adc) / 4U;
+      }
       g_key_adc = Read_Key_ADC();
     }
 
     if (g_work_mode == MODE_AUTO)
     {
       g_led_level = Get_Light_Level(g_light_adc);
+      g_pwm_brightness = Get_PWM_Brightness(g_light_adc);
     }
     else
     {
       g_led_level = g_manual_level;
+      g_pwm_brightness = (uint8_t)((g_manual_level * SOFT_PWM_TOTAL_STEPS) / 3U);
     }
 
-    Set_Led_Level(g_led_level);
+    if (g_output_mode == OUTPUT_STEP)
+    {
+      Set_Led_Level(g_led_level);
+    }
 
     if (now - last_lcd_refresh_tick >= LCD_REFRESH_INTERVAL_MS)
     {
@@ -210,16 +241,18 @@ int main(void)
 
     if (now - last_uart_report_tick >= UART_REPORT_INTERVAL_MS || uart_key != KEY_NONE)
     {
-      char msg[180];
+      char msg[220];
 
       last_uart_report_tick = now;
       sprintf(msg,
-              "mode=%s, light=%lu, key_adc=%lu, uart_key=%s, level=%d, th=%lu/%lu/%lu\r\n",
+              "mode=%s, output=%s, light=%lu, key_adc=%lu, uart_key=%s, level=%d, pwm=%d, th=%lu/%lu/%lu\r\n",
               Mode_To_String(g_work_mode),
+              Output_Mode_To_String(g_output_mode),
               g_light_adc,
               g_key_adc,
               Key_To_String(uart_key),
               g_led_level,
+              g_pwm_brightness,
               g_light_bright_threshold,
               g_light_mid_threshold,
               g_light_dark_threshold);
@@ -333,6 +366,78 @@ static void Set_Led_Level(uint8_t level)
   HAL_GPIO_WritePin(LED4_GPIO_Port, LED4_Pin, level >= 3 ? LED_ON : LED_OFF);
 }
 
+static uint8_t Get_PWM_Brightness(uint32_t adc_value)
+{
+  uint32_t span;
+  uint32_t brightness;
+
+  if (adc_value <= g_light_bright_threshold)
+  {
+    return 0;
+  }
+
+  if (adc_value >= g_light_dark_threshold)
+  {
+    return SOFT_PWM_TOTAL_STEPS;
+  }
+
+  span = g_light_dark_threshold - g_light_bright_threshold;
+  brightness = ((adc_value - g_light_bright_threshold) * SOFT_PWM_TOTAL_STEPS + span / 2U) / span;
+
+  return (uint8_t)brightness;
+}
+
+static uint8_t Get_PWM_Led_Duty(uint8_t brightness, uint8_t led_index)
+{
+  uint8_t start = led_index * SOFT_PWM_LED_STEPS;
+
+  if (brightness <= start)
+  {
+    return 0;
+  }
+
+  if (brightness >= start + SOFT_PWM_LED_STEPS)
+  {
+    return SOFT_PWM_LED_STEPS;
+  }
+
+  return brightness - start;
+}
+
+static void Soft_PWM_Update(void)
+{
+  static uint8_t pwm_step = 0;
+  uint8_t brightness;
+  uint8_t led2_duty;
+  uint8_t led3_duty;
+  uint8_t led4_duty;
+
+  if (g_output_mode != OUTPUT_PWM)
+  {
+    return;
+  }
+
+  pwm_step++;
+  if (pwm_step >= SOFT_PWM_LED_STEPS)
+  {
+    pwm_step = 0;
+  }
+
+  brightness = g_pwm_brightness;
+  led2_duty = Get_PWM_Led_Duty(brightness, 0);
+  led3_duty = Get_PWM_Led_Duty(brightness, 1);
+  led4_duty = Get_PWM_Led_Duty(brightness, 2);
+
+  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, pwm_step < led2_duty ? LED_ON : LED_OFF);
+  HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, pwm_step < led3_duty ? LED_ON : LED_OFF);
+  HAL_GPIO_WritePin(LED4_GPIO_Port, LED4_Pin, pwm_step < led4_duty ? LED_ON : LED_OFF);
+}
+
+void App_Systick_1ms(void)
+{
+  Soft_PWM_Update();
+}
+
 static Key_t Get_Key_By_UART(void)
 {
   uint8_t rx_data = 0;
@@ -371,6 +476,10 @@ static Key_t Get_Key_By_UART(void)
     {
       key = KEY_RESET_DEFAULT;
     }
+    else if (rx_data == 'g' || rx_data == 'G')
+    {
+      key = KEY_OUTPUT_MODE;
+    }
   }
 
   return key;
@@ -394,6 +503,8 @@ static const char *Key_To_String(Key_t key)
       return "SAVE";
     case KEY_RESET_DEFAULT:
       return "RESET";
+    case KEY_OUTPUT_MODE:
+      return "OUTPUT";
     default:
       return "NONE";
   }
@@ -407,6 +518,16 @@ static const char *Mode_To_String(WorkMode_t mode)
   }
 
   return "AUTO";
+}
+
+static const char *Output_Mode_To_String(LightOutputMode_t mode)
+{
+  if (mode == OUTPUT_PWM)
+  {
+    return "PWM";
+  }
+
+  return "STEP";
 }
 
 static void Process_Key(Key_t key)
@@ -477,6 +598,20 @@ static void Process_Key(Key_t key)
   {
     Config_Reset_Defaults();
     LCD_Set_Message("Default RAM", LCD_MESSAGE_HOLD_MS);
+    LCD_Show_Status();
+  }
+  else if (key == KEY_OUTPUT_MODE)
+  {
+    if (g_output_mode == OUTPUT_STEP)
+    {
+      g_output_mode = OUTPUT_PWM;
+      LCD_Set_Message("Output PWM", LCD_MESSAGE_HOLD_MS);
+    }
+    else
+    {
+      g_output_mode = OUTPUT_STEP;
+      LCD_Set_Message("Output STEP", LCD_MESSAGE_HOLD_MS);
+    }
     LCD_Show_Status();
   }
 }
@@ -600,13 +735,17 @@ static void LCD_Show_Status(void)
   char line[32];
   const char *message = "";
 
-  sprintf(line, "Mode:%s", Mode_To_String(g_work_mode));
+  sprintf(line, "Mode:%s %s",
+          Mode_To_String(g_work_mode),
+          Output_Mode_To_String(g_output_mode));
   LCD_Draw_TextLine(0, line);
 
   sprintf(line, "Light:%lu", g_light_adc);
   LCD_Draw_TextLine(16, line);
 
-  sprintf(line, "Level:%d", g_led_level);
+  sprintf(line, "Level:%d PWM:%d",
+          g_led_level,
+          g_pwm_brightness);
   LCD_Draw_TextLine(32, line);
 
   sprintf(line, "T1:%lu T2:%lu",

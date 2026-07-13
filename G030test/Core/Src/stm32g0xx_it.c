@@ -51,6 +51,7 @@
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+extern void App_Systick_1ms(void);
 
 /* USER CODE END 0 */
 
@@ -129,6 +130,7 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
+  App_Systick_1ms();
 
   /* USER CODE END SysTick_IRQn 1 */
 }
