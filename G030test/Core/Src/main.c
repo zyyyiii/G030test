@@ -82,6 +82,7 @@ typedef struct
   #define LCD_MESSAGE_HOLD_MS 2000
   #define SOFT_PWM_LED_STEPS 200
   #define SOFT_PWM_TOTAL_STEPS SOFT_PWM_LED_STEPS
+  #define MANUAL_PWM_STEP 10
   #define LCD_CHARS_PER_LINE 16
   #define LED_ON GPIO_PIN_RESET
   #define LED_OFF GPIO_PIN_SET
@@ -100,6 +101,7 @@ typedef struct
 /* USER CODE BEGIN PV */
 static WorkMode_t g_work_mode = MODE_AUTO;
 static uint8_t g_manual_level = 0;
+static uint16_t g_manual_pwm_brightness = 0;
 static uint32_t g_light_bright_threshold = LIGHT_BRIGHT_THRESHOLD_DEFAULT;
 static uint32_t g_light_mid_threshold = LIGHT_MID_THRESHOLD_DEFAULT;
 static uint32_t g_light_dark_threshold = LIGHT_DARK_THRESHOLD_DEFAULT;
@@ -230,7 +232,7 @@ int main(void)
     else
     {
       g_led_level = g_manual_level;
-      g_pwm_brightness = (uint8_t)((g_manual_level * SOFT_PWM_TOTAL_STEPS) / 3U);
+      g_pwm_brightness = g_manual_pwm_brightness;
     }
 
     if (g_output_mode == OUTPUT_STEP)
@@ -521,7 +523,8 @@ static void Process_Key(Key_t key)
     if (g_work_mode == MODE_AUTO)
     {
       g_work_mode = MODE_MANUAL;
-      g_manual_level = 0;
+      g_manual_level = g_led_level;
+      g_manual_pwm_brightness = g_pwm_brightness;
     }
     else
     {
@@ -530,14 +533,36 @@ static void Process_Key(Key_t key)
   }
   else if (key == KEY_LEFT)
   {
-    if (g_work_mode == MODE_MANUAL && g_manual_level > 0)
+    if (g_work_mode == MODE_MANUAL && g_output_mode == OUTPUT_PWM)
+    {
+      if (g_manual_pwm_brightness > MANUAL_PWM_STEP)
+      {
+        g_manual_pwm_brightness -= MANUAL_PWM_STEP;
+      }
+      else
+      {
+        g_manual_pwm_brightness = 0;
+      }
+    }
+    else if (g_work_mode == MODE_MANUAL && g_manual_level > 0)
     {
       g_manual_level--;
     }
   }
   else if (key == KEY_RIGHT)
   {
-    if (g_work_mode == MODE_MANUAL && g_manual_level < 3)
+    if (g_work_mode == MODE_MANUAL && g_output_mode == OUTPUT_PWM)
+    {
+      if (g_manual_pwm_brightness + MANUAL_PWM_STEP < SOFT_PWM_TOTAL_STEPS)
+      {
+        g_manual_pwm_brightness += MANUAL_PWM_STEP;
+      }
+      else
+      {
+        g_manual_pwm_brightness = SOFT_PWM_TOTAL_STEPS;
+      }
+    }
+    else if (g_work_mode == MODE_MANUAL && g_manual_level < 3)
     {
       g_manual_level++;
     }
