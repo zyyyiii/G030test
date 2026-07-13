@@ -33,9 +33,12 @@ g030test\main.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_flash.h
 g030test\main.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_flash_ex.h
 g030test\main.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_pwr.h
 g030test\main.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_pwr_ex.h
+g030test\main.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_tim.h
+g030test\main.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_tim_ex.h
 g030test\main.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_uart.h
 g030test\main.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_uart_ex.h
 g030test\main.o: ../Core/Inc/adc.h
+g030test\main.o: ../Core/Inc/tim.h
 g030test\main.o: ../Core/Inc/usart.h
 g030test\main.o: ../Core/Inc/gpio.h
 g030test\main.o: D:\Keil_v5\ARM\ARM_COMPILER_5\Bin\..\include\stdio.h

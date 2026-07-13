@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -79,8 +80,8 @@ typedef struct
   #define LCD_REFRESH_INTERVAL_MS 500
   #define UART_REPORT_INTERVAL_MS 1000
   #define LCD_MESSAGE_HOLD_MS 2000
-  #define SOFT_PWM_LED_STEPS 10
-  #define SOFT_PWM_TOTAL_STEPS (SOFT_PWM_LED_STEPS * 3)
+  #define SOFT_PWM_LED_STEPS 200
+  #define SOFT_PWM_TOTAL_STEPS SOFT_PWM_LED_STEPS
   #define LCD_CHARS_PER_LINE 16
   #define LED_ON GPIO_PIN_RESET
   #define LED_OFF GPIO_PIN_SET
@@ -106,7 +107,7 @@ static uint32_t g_light_adc = 0;
 static uint32_t g_key_adc = 0;
 static uint8_t g_led_level = 0;
 static volatile LightOutputMode_t g_output_mode = OUTPUT_STEP;
-static volatile uint8_t g_pwm_brightness = 0;
+static volatile uint16_t g_pwm_brightness = 0;
 static const char *g_lcd_message = "";
 static uint32_t g_lcd_message_until = 0;
 
@@ -128,10 +129,8 @@ static void Process_Key(Key_t key);
 static void LCD_Show_Status(void);
 static void LCD_Draw_TextLine(uint16_t y, const char *text);
 static void LCD_Set_Message(const char *message, uint32_t hold_ms);
-static uint8_t Get_PWM_Brightness(uint32_t adc_value);
-static uint8_t Get_PWM_Led_Duty(uint8_t brightness, uint8_t led_index);
+static uint16_t Get_PWM_Brightness(uint32_t adc_value);
 static void Soft_PWM_Update(void);
-void App_Systick_1ms(void);
 static uint32_t Config_Calc_Checksum(const AppConfig_t *config);
 static uint8_t Config_Is_Valid(const AppConfig_t *config);
 static void Config_Load(void);
@@ -175,8 +174,14 @@ int main(void)
   MX_GPIO_Init();
   MX_USART1_UART_Init();
   MX_ADC1_Init();
+  MX_TIM14_Init();
   /* USER CODE BEGIN 2 */
   Config_Load();
+
+  if (HAL_TIM_Base_Start_IT(&htim14) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
   HAL_GPIO_WritePin(CSS_GPIO_Port, CSS_Pin, GPIO_PIN_SET);
 
@@ -366,7 +371,7 @@ static void Set_Led_Level(uint8_t level)
   HAL_GPIO_WritePin(LED4_GPIO_Port, LED4_Pin, level >= 3 ? LED_ON : LED_OFF);
 }
 
-static uint8_t Get_PWM_Brightness(uint32_t adc_value)
+static uint16_t Get_PWM_Brightness(uint32_t adc_value)
 {
   uint32_t span;
   uint32_t brightness;
@@ -384,33 +389,13 @@ static uint8_t Get_PWM_Brightness(uint32_t adc_value)
   span = g_light_dark_threshold - g_light_bright_threshold;
   brightness = ((adc_value - g_light_bright_threshold) * SOFT_PWM_TOTAL_STEPS + span / 2U) / span;
 
-  return (uint8_t)brightness;
-}
-
-static uint8_t Get_PWM_Led_Duty(uint8_t brightness, uint8_t led_index)
-{
-  uint8_t start = led_index * SOFT_PWM_LED_STEPS;
-
-  if (brightness <= start)
-  {
-    return 0;
-  }
-
-  if (brightness >= start + SOFT_PWM_LED_STEPS)
-  {
-    return SOFT_PWM_LED_STEPS;
-  }
-
-  return brightness - start;
+  return (uint16_t)brightness;
 }
 
 static void Soft_PWM_Update(void)
 {
-  static uint8_t pwm_step = 0;
-  uint8_t brightness;
-  uint8_t led2_duty;
-  uint8_t led3_duty;
-  uint8_t led4_duty;
+  static uint16_t pwm_step = 0;
+  uint16_t brightness;
 
   if (g_output_mode != OUTPUT_PWM)
   {
@@ -424,18 +409,17 @@ static void Soft_PWM_Update(void)
   }
 
   brightness = g_pwm_brightness;
-  led2_duty = Get_PWM_Led_Duty(brightness, 0);
-  led3_duty = Get_PWM_Led_Duty(brightness, 1);
-  led4_duty = Get_PWM_Led_Duty(brightness, 2);
-
-  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, pwm_step < led2_duty ? LED_ON : LED_OFF);
-  HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, pwm_step < led3_duty ? LED_ON : LED_OFF);
-  HAL_GPIO_WritePin(LED4_GPIO_Port, LED4_Pin, pwm_step < led4_duty ? LED_ON : LED_OFF);
+  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, LED_OFF);
+  HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, pwm_step < brightness ? LED_ON : LED_OFF);
+  HAL_GPIO_WritePin(LED4_GPIO_Port, LED4_Pin, LED_OFF);
 }
 
-void App_Systick_1ms(void)
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  Soft_PWM_Update();
+  if (htim->Instance == TIM14)
+  {
+    Soft_PWM_Update();
+  }
 }
 
 static Key_t Get_Key_By_UART(void)

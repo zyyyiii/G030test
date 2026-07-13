@@ -32,5 +32,7 @@ g030test\stm32g0xx_hal_rcc.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_
 g030test\stm32g0xx_hal_rcc.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_flash_ex.h
 g030test\stm32g0xx_hal_rcc.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_pwr.h
 g030test\stm32g0xx_hal_rcc.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_pwr_ex.h
+g030test\stm32g0xx_hal_rcc.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_tim.h
+g030test\stm32g0xx_hal_rcc.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_tim_ex.h
 g030test\stm32g0xx_hal_rcc.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_uart.h
 g030test\stm32g0xx_hal_rcc.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_uart_ex.h
