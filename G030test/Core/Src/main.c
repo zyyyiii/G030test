@@ -83,7 +83,15 @@ typedef struct
   #define SOFT_PWM_LED_STEPS 200
   #define SOFT_PWM_TOTAL_STEPS SOFT_PWM_LED_STEPS
   #define PWM_LEVEL_MAX 20
+  #define UART1_RX_BUFFER_SIZE 128
   #define UART_RX_DRAIN_LIMIT 128
+  #define WIFI_AT_CMD_MAX_LEN 96
+  #define WIFI_AT_INPUT_TIMEOUT_MS 1000
+  #define UART2_RX_BUFFER_SIZE 256
+  #define WIFI_AT_REPLY_TIMEOUT_MS 12000
+  #define WIFI_AT_REPLY_IDLE_MS 120
+  #define WIFI_JOIN_REPLY_TIMEOUT_MS 30000
+  #define WIFI_JOIN_REPLY_IDLE_MS WIFI_JOIN_REPLY_TIMEOUT_MS
   #define LCD_CHARS_PER_LINE 16
   #define LED_ON GPIO_PIN_RESET
   #define LED_OFF GPIO_PIN_SET
@@ -111,6 +119,14 @@ static uint32_t g_key_adc = 0;
 static uint8_t g_led_level = 0;
 static volatile LightOutputMode_t g_output_mode = OUTPUT_STEP;
 static volatile uint16_t g_pwm_brightness = 0;
+static uint8_t g_uart1_rx_byte = 0;
+static volatile uint8_t g_uart1_rx_head = 0;
+static volatile uint8_t g_uart1_rx_tail = 0;
+static volatile uint8_t g_uart1_rx_buffer[UART1_RX_BUFFER_SIZE];
+static uint8_t g_uart2_rx_byte = 0;
+static volatile uint16_t g_uart2_rx_head = 0;
+static volatile uint16_t g_uart2_rx_tail = 0;
+static volatile uint8_t g_uart2_rx_buffer[UART2_RX_BUFFER_SIZE];
 static const char *g_lcd_message = "";
 static uint32_t g_lcd_message_until = 0;
 static const uint16_t g_pwm_gamma_table[PWM_LEVEL_MAX + 1] =
@@ -133,6 +149,8 @@ static uint32_t Read_Key_ADC(void);
 static uint8_t Get_Light_Level(uint32_t adc_value);
 static void Set_Led_Level(uint8_t level);
 static Key_t Get_Key_By_UART(void);
+static Key_t Get_Key_By_WIFI(void);
+static Key_t Command_Char_To_Key(uint8_t data);
 static const char *Key_To_String(Key_t key);
 static const char *Mode_To_String(WorkMode_t mode);
 static const char *Output_Mode_To_String(LightOutputMode_t mode);
@@ -149,6 +167,16 @@ static uint8_t Config_Is_Valid(const AppConfig_t *config);
 static void Config_Load(void);
 static uint8_t Config_Save(void);
 static void Config_Reset_Defaults(void);
+static void UART1_Start_Receive_IT(void);
+static void UART1_Buffer_Push(uint8_t data);
+static uint8_t UART1_Read_Byte(uint8_t *data);
+static void UART2_Start_Receive_IT(void);
+static void UART2_Buffer_Push(uint8_t data);
+static uint8_t UART2_Read_Byte(uint8_t *data);
+static void UART1_Send_String(const char *text);
+static void WIFI_Read_And_Send_AT_Command(void);
+static void WIFI_Send_AT_Command(const char *at_command);
+static void WIFI_Forward_Response(uint32_t timeout_ms, uint32_t idle_ms);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -188,8 +216,16 @@ int main(void)
   MX_USART1_UART_Init();
   MX_ADC1_Init();
   MX_TIM14_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   Config_Load();
+
+  HAL_NVIC_SetPriority(USART1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(USART1_IRQn);
+  HAL_NVIC_SetPriority(USART2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(USART2_IRQn);
+  UART1_Start_Receive_IT();
+  UART2_Start_Receive_IT();
 
   if (HAL_TIM_Base_Start_IT(&htim14) != HAL_OK)
   {
@@ -201,6 +237,7 @@ int main(void)
   Lcd_Init();
   Lcd_Clear(BLACK);
   LCD_Show_Status();
+  UART1_Send_String("\r\nLocal: m/g/a/d/w/s/p/r, WiFi AT line parser v2: @AT+GMR\r\n");
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -215,8 +252,10 @@ int main(void)
     static uint32_t last_lcd_refresh_tick = 0;
     static uint32_t last_uart_report_tick = 0;
     Key_t uart_key = Get_Key_By_UART();
+    Key_t wifi_key = Get_Key_By_WIFI();
+    Key_t active_key = uart_key != KEY_NONE ? uart_key : wifi_key;
 
-    Process_Key(uart_key);
+    Process_Key(active_key);
 
     if (now - last_adc_sample_tick >= ADC_SAMPLE_INTERVAL_MS)
     {
@@ -257,7 +296,7 @@ int main(void)
       LCD_Show_Status();
     }
 
-    if (now - last_uart_report_tick >= UART_REPORT_INTERVAL_MS || uart_key != KEY_NONE)
+    if (now - last_uart_report_tick >= UART_REPORT_INTERVAL_MS || active_key != KEY_NONE)
     {
       char msg[220];
 
@@ -268,7 +307,7 @@ int main(void)
               Output_Mode_To_String(g_output_mode),
               g_light_adc,
               g_key_adc,
-              Key_To_String(uart_key),
+              Key_To_String(active_key),
               g_led_level,
               g_pwm_brightness,
               PWM_Duty_To_Level(g_pwm_brightness),
@@ -277,8 +316,8 @@ int main(void)
               g_light_dark_threshold);
       HAL_UART_Transmit(&huart1, (uint8_t *)msg, strlen(msg), 100);
     }
-  /* USER CODE END 3 */
   }
+ /* USER CODE END 3 */
 }
 
 /**
@@ -467,45 +506,320 @@ static Key_t Get_Key_By_UART(void)
   uint8_t read_count = 0;
   Key_t key = KEY_NONE;
 
-  while (read_count < UART_RX_DRAIN_LIMIT && HAL_UART_Receive(&huart1, &rx_data, 1, 0) == HAL_OK)
+  while (read_count < UART_RX_DRAIN_LIMIT && UART1_Read_Byte(&rx_data))
   {
     read_count++;
 
-    if (rx_data == 'w' || rx_data == 'W')
+    if (rx_data == '@')
     {
-      key = KEY_UP;
+      WIFI_Read_And_Send_AT_Command();
     }
-    else if (rx_data == 's' || rx_data == 'S')
+    else
     {
-      key = KEY_DOWN;
-    }
-    else if (rx_data == 'a' || rx_data == 'A')
-    {
-      key = KEY_LEFT;
-    }
-    else if (rx_data == 'd' || rx_data == 'D')
-    {
-      key = KEY_RIGHT;
-    }
-    else if (rx_data == 'm' || rx_data == 'M')
-    {
-      key = KEY_CENTER;
-    }
-    else if (rx_data == 'p' || rx_data == 'P')
-    {
-      key = KEY_SAVE;
-    }
-    else if (rx_data == 'r' || rx_data == 'R')
-    {
-      key = KEY_RESET_DEFAULT;
-    }
-    else if (rx_data == 'g' || rx_data == 'G')
-    {
-      key = KEY_OUTPUT_MODE;
+      Key_t rx_key = Command_Char_To_Key(rx_data);
+
+      if (rx_key != KEY_NONE)
+      {
+        key = rx_key;
+      }
     }
   }
 
   return key;
+}
+
+static Key_t Get_Key_By_WIFI(void)
+{
+  static uint8_t prefix_index = 0;
+  static uint8_t reading_header = 0;
+  static uint16_t ipd_length = 0;
+  static uint16_t ipd_data_left = 0;
+  const char prefix[] = "+IPD,";
+  uint8_t rx_data = 0;
+  Key_t key = KEY_NONE;
+
+  while (UART2_Read_Byte(&rx_data))
+  {
+    if (ipd_data_left > 0)
+    {
+      key = Command_Char_To_Key(rx_data);
+      ipd_data_left--;
+
+      if (key != KEY_NONE)
+      {
+        char msg[32];
+
+        sprintf(msg, "\r\nwifi remote: %s\r\n", Key_To_String(key));
+        UART1_Send_String(msg);
+        return key;
+      }
+
+      continue;
+    }
+
+    if (reading_header)
+    {
+      if (rx_data >= '0' && rx_data <= '9')
+      {
+        ipd_length = (uint16_t)(ipd_length * 10U + rx_data - '0');
+      }
+      else if (rx_data == ',')
+      {
+        ipd_length = 0;
+      }
+      else if (rx_data == ':')
+      {
+        ipd_data_left = ipd_length > 0 ? ipd_length : 1;
+        reading_header = 0;
+        ipd_length = 0;
+      }
+      else
+      {
+        reading_header = 0;
+        ipd_length = 0;
+      }
+
+      continue;
+    }
+
+    if (rx_data == (uint8_t)prefix[prefix_index])
+    {
+      prefix_index++;
+      if (prefix[prefix_index] == '\0')
+      {
+        prefix_index = 0;
+        reading_header = 1;
+        ipd_length = 0;
+      }
+    }
+    else
+    {
+      prefix_index = rx_data == '+' ? 1 : 0;
+    }
+  }
+
+  return KEY_NONE;
+}
+
+static Key_t Command_Char_To_Key(uint8_t data)
+{
+  if (data == 'w' || data == 'W')
+  {
+    return KEY_UP;
+  }
+  else if (data == 's' || data == 'S')
+  {
+    return KEY_DOWN;
+  }
+  else if (data == 'a' || data == 'A')
+  {
+    return KEY_LEFT;
+  }
+  else if (data == 'd' || data == 'D')
+  {
+    return KEY_RIGHT;
+  }
+  else if (data == 'm' || data == 'M')
+  {
+    return KEY_CENTER;
+  }
+  else if (data == 'p' || data == 'P')
+  {
+    return KEY_SAVE;
+  }
+  else if (data == 'r' || data == 'R')
+  {
+    return KEY_RESET_DEFAULT;
+  }
+  else if (data == 'g' || data == 'G')
+  {
+    return KEY_OUTPUT_MODE;
+  }
+
+  return KEY_NONE;
+}
+
+static void UART1_Send_String(const char *text)
+{
+  HAL_UART_Transmit(&huart1, (uint8_t *)text, strlen(text), 100);
+}
+
+static void UART1_Start_Receive_IT(void)
+{
+  if (HAL_UART_Receive_IT(&huart1, &g_uart1_rx_byte, 1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+static void UART1_Buffer_Push(uint8_t data)
+{
+  uint8_t next_head = (uint8_t)((g_uart1_rx_head + 1U) % UART1_RX_BUFFER_SIZE);
+
+  if (next_head != g_uart1_rx_tail)
+  {
+    g_uart1_rx_buffer[g_uart1_rx_head] = data;
+    g_uart1_rx_head = next_head;
+  }
+}
+
+static uint8_t UART1_Read_Byte(uint8_t *data)
+{
+  if (g_uart1_rx_tail == g_uart1_rx_head)
+  {
+    return 0;
+  }
+
+  *data = g_uart1_rx_buffer[g_uart1_rx_tail];
+  g_uart1_rx_tail = (uint8_t)((g_uart1_rx_tail + 1U) % UART1_RX_BUFFER_SIZE);
+
+  return 1;
+}
+
+static void UART2_Start_Receive_IT(void)
+{
+  if (HAL_UART_Receive_IT(&huart2, &g_uart2_rx_byte, 1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+static void UART2_Buffer_Push(uint8_t data)
+{
+  uint16_t next_head = (uint16_t)((g_uart2_rx_head + 1U) % UART2_RX_BUFFER_SIZE);
+
+  if (next_head != g_uart2_rx_tail)
+  {
+    g_uart2_rx_buffer[g_uart2_rx_head] = data;
+    g_uart2_rx_head = next_head;
+  }
+}
+
+static uint8_t UART2_Read_Byte(uint8_t *data)
+{
+  if (g_uart2_rx_tail == g_uart2_rx_head)
+  {
+    return 0;
+  }
+
+  *data = g_uart2_rx_buffer[g_uart2_rx_tail];
+  g_uart2_rx_tail = (uint16_t)((g_uart2_rx_tail + 1U) % UART2_RX_BUFFER_SIZE);
+
+  return 1;
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1)
+  {
+    UART1_Buffer_Push(g_uart1_rx_byte);
+    UART1_Start_Receive_IT();
+  }
+  else if (huart->Instance == USART2)
+  {
+    UART2_Buffer_Push(g_uart2_rx_byte);
+    UART2_Start_Receive_IT();
+  }
+}
+
+static void WIFI_Read_And_Send_AT_Command(void)
+{
+  char command[WIFI_AT_CMD_MAX_LEN + 1];
+  uint8_t rx_data = 0;
+  uint8_t len = 0;
+  uint32_t start_tick = HAL_GetTick();
+
+  while (len < WIFI_AT_CMD_MAX_LEN
+         && HAL_GetTick() - start_tick < WIFI_AT_INPUT_TIMEOUT_MS)
+  {
+    if (UART1_Read_Byte(&rx_data))
+    {
+      if (rx_data == '\r' || rx_data == '\n')
+      {
+        break;
+      }
+
+      command[len++] = (char)rx_data;
+    }
+    else
+    {
+      HAL_Delay(1);
+    }
+  }
+
+  command[len] = '\0';
+  UART1_Send_String("\r\nwifi cmd ready\r\n");
+  WIFI_Send_AT_Command(len == 0 ? "AT" : command);
+}
+
+static void WIFI_Send_AT_Command(const char *at_command)
+{
+  char command[WIFI_AT_CMD_MAX_LEN + 3];
+  uint8_t len = strlen(at_command);
+  uint8_t discard = 0;
+  uint32_t reply_timeout = WIFI_AT_REPLY_TIMEOUT_MS;
+  uint32_t reply_idle = WIFI_AT_REPLY_IDLE_MS;
+
+  if (len > WIFI_AT_CMD_MAX_LEN)
+  {
+    len = WIFI_AT_CMD_MAX_LEN;
+  }
+
+  memcpy(command, at_command, len);
+  command[len] = '\0';
+
+  UART1_Send_String("\r\nwifi tx: ");
+  UART1_Send_String(command);
+  UART1_Send_String("\r\nwifi rx:\r\n");
+
+  while (UART2_Read_Byte(&discard))
+  {
+  }
+
+  command[len++] = '\r';
+  command[len++] = '\n';
+  HAL_UART_Transmit(&huart2, (uint8_t *)command, len, 1000);
+
+  if (strncmp(at_command, "AT+CWJAP", 8) == 0 || strncmp(at_command, "AT+CWLAP", 8) == 0)
+  {
+    reply_timeout = WIFI_JOIN_REPLY_TIMEOUT_MS;
+    reply_idle = WIFI_JOIN_REPLY_IDLE_MS;
+  }
+
+  WIFI_Forward_Response(reply_timeout, reply_idle);
+}
+
+static void WIFI_Forward_Response(uint32_t timeout_ms, uint32_t idle_ms)
+{
+  uint8_t rx_data = 0;
+  uint8_t got_response = 0;
+  uint32_t start_tick = HAL_GetTick();
+  uint32_t last_rx_tick = start_tick;
+
+  while (HAL_GetTick() - start_tick < timeout_ms)
+  {
+    if (UART2_Read_Byte(&rx_data))
+    {
+      got_response = 1;
+      last_rx_tick = HAL_GetTick();
+      HAL_UART_Transmit(&huart1, &rx_data, 1, 100);
+    }
+    else if (got_response && HAL_GetTick() - last_rx_tick >= idle_ms)
+    {
+      break;
+    }
+    else
+    {
+      HAL_Delay(1);
+    }
+  }
+
+  if (!got_response)
+  {
+    UART1_Send_String("(timeout/no response)\r\n");
+  }
+
+  UART1_Send_String("\r\n(wifi rx end)\r\n");
 }
 
 static const char *Key_To_String(Key_t key)

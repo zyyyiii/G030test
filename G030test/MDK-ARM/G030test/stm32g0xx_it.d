@@ -38,3 +38,4 @@ g030test\stm32g0xx_it.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_tim_e
 g030test\stm32g0xx_it.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_uart.h
 g030test\stm32g0xx_it.o: ../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_hal_uart_ex.h
 g030test\stm32g0xx_it.o: ../Core/Inc/stm32g0xx_it.h
+g030test\stm32g0xx_it.o: ../Core/Inc/usart.h

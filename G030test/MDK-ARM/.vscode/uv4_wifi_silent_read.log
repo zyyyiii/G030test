@@ -1,0 +1,11 @@
+*** Using Compiler 'V5.06 update 7 (build 960)', folder: 'D:\Keil_v5\ARM\ARM_COMPILER_5\Bin'
+Build target 'G030test'
+compiling main.c...
+../Core/Src/main.c(581): warning:  #177-D: function "WIFI_Debug_Char"  was declared but never referenced
+  static void WIFI_Debug_Char(uint8_t data)
+../Core/Src/main.c: 1 warning, 0 errors
+linking...
+Program Size: Code=13432 RO-data=4612 RW-data=68 ZI-data=2132  
+FromELF: creating hex file...
+"G030test\G030test.axf" - 0 Error(s), 1 Warning(s).
+Build Time Elapsed:  00:00:01
